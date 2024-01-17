@@ -44,6 +44,7 @@ class MoeRouter(nn.Module, ABC):
         self.use_kernel = use_kernel
 
     def get_capacity(self, logits_shape):
+        print(f'capacity info eval {self.capacity_factor_eval} train {self.capacity_factor_train} kvalue {self.k_value}')
         capacity_factor = self.capacity_factor_train if self.training else self.capacity_factor_eval
         capacity = math.floor(self.k_value * capacity_factor * logits_shape[-2] / logits_shape[-1])
         capacity += capacity % 2
@@ -189,7 +190,7 @@ class Top1Router(MoeRouter):
 
         ranks = torch.sum(mask * ranks, dim=-1)
         used_capacity = mask.sum(dim=0)
-
+        print(f'mask shape {mask.shape} capacity {capacity}')
         if use_kernel:
             mask = torch.sum(mask, dim=-1)
             mask = torch.stack([mask], dim=0).to(torch.int32)
@@ -268,7 +269,7 @@ class Top2Router(MoeRouter):
             max_num = torch.max(torch.sum(cmask, dim=0))
             dist.all_reduce(max_num, op=dist.ReduceOp.MAX, group=ep_group)
             capacity = max_num.item()
-
+        print(f'capacity {capacity}')
         rank1 = moe_cumsum(mask1, use_kernel=self.use_kernel)    # rank1: [s, e]
         rank2 = moe_cumsum(mask2, use_kernel=self.use_kernel)
         rank2 += torch.sum(mask1, dim=-2, keepdim=True)

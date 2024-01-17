@@ -134,6 +134,10 @@ class SparseMLP(nn.Module):
         # init param
         self.reset_parameters()
 
+        # expert call statistics
+        self.expert_call_count = torch.zeros(num_experts, dtype=torch.long)
+
+
     @torch.no_grad()
     def reset_parameters(self):
         torch.nn.init.normal_(self.gate_weight, std=math.sqrt(0.1 / self.hidden_size))
@@ -166,7 +170,7 @@ class SparseMLP(nn.Module):
         # the result from the router
         used_capacity, *route_result_list = self.router(
             inputs=gate_output, use_kernel=self.enable_kernel, ep_group=self.ep_group)
-
+        print(f'capacity shape: {used_capacity.shape} capacity: {used_capacity}  mask shape {route_result_list[1].shape}')
         # dispatch_data: (num_experts, capacity, hidden_size)
         if self.enable_kernel:
             dispatch_data = MoeDispatch.apply(tokens, *route_result_list[1:])
@@ -174,7 +178,9 @@ class SparseMLP(nn.Module):
         else:
             sec_mask_f = route_result_list[1].type_as(inputs)
             dispatch_data = torch.matmul(sec_mask_f.permute(1, 2, 0), tokens)
-
+        expert_usage = route_result_list[1].sum(dim=0).sum(dim=-1)
+        # self.expert_call_count += expert_usage
+        print(f'expert usage {expert_usage} tokens: {tokens.shape} input: {inputs.shape} dispatch_data: {dispatch_data.shape}')
         # expert_output: (num_groups, num_experts, capacity, hidden_size)
         if self.expert_parallel == "EP":
             expert_output = self._ep_process(

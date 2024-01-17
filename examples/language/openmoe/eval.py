@@ -118,7 +118,7 @@ def parse_args():
         choices=["fp32", "bf16", "fp16"],
         help="The mixed precision training.",
     )
-    parser.add_argument("--max_length", type=int, default=2048, help="Max sequence length.")
+    parser.add_argument("--max_length", type=int, default=512, help="Max sequence length.")
     parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
     parser.add_argument(
         "--dataset",
@@ -286,6 +286,7 @@ def main():
         enable_hierarchical_alltoall=args.hierarchical_alltoall,
         enable_kernel=args.use_kernel,
     )
+    # config.router_topk = 1
     with skip_init():
         model = OpenMoeForCausalLM(config)
     coordinator.print_on_master(f"Finish init model with config:\n{config}")
@@ -300,7 +301,7 @@ def main():
         collate_fn = None
     else:
         dataset = load_dataset(args.dataset, args.task_name)
-        dataset = dataset["eval"]
+        dataset = dataset["train"]
         collate_fn = partial(tokenize_data, tokenizer=tokenizer, max_length=args.max_length)
     dataloader = plugin.prepare_dataloader(
         dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, collate_fn=collate_fn
@@ -323,6 +324,15 @@ def main():
     model.eval()
     train_dataloader_iter = iter(dataloader)
     total_len = len(train_dataloader_iter)
+
+    if torch.cuda.is_available():
+        print("CUDA is available. GPU Info:")
+        for i in range(torch.cuda.device_count()):
+            print(f"Device {i}: {torch.cuda.get_device_name(i)}")
+            print(f"  Memory Allocated: {torch.cuda.memory_allocated(i) / 1e6} MB")
+            print(f"  Memory Cached: {torch.cuda.memory_reserved(i) / 1e6} MB")
+    else:
+        print("CUDA is not available.")
     with tqdm(
         range(total_len),
         disable=not coordinator.is_master(),
@@ -345,6 +355,7 @@ def main():
             else:
                 # Forward pass
                 data = next(train_dataloader_iter)
+                print(f'data type {type(data)} keys {data.keys()} input_ids {data["input_ids"].shape}')
                 data = move_to_cuda(data, torch.cuda.current_device())
                 outputs = model(**data)
                 loss = outputs["loss"]
